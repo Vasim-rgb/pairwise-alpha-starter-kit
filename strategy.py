@@ -12,26 +12,11 @@ import numpy as np
 
 
 def get_coin_metadata() -> dict:
-    """
-    Specifies the target and anchor coins used in this strategy.
-    
-    Returns:
-    {
-        "targets": [{"symbol": "LDO", "timeframe": "1H"}],
-        "anchors": [
-            {"symbol": "BTC", "timeframe": "4H"},
-            {"symbol": "ETH", "timeframe": "4H"}
-        ]
-    }
-    """
     return {
-        "targets": [{
-            "symbol": "LDO",
-            "timeframe": "1H"
-        }],
+        "targets": [{"symbol": "SOL", "timeframe": "4H"}],
         "anchors": [
-            {"symbol": "BTC", "timeframe": "4H"},
-            {"symbol": "ETH", "timeframe": "4H"}
+            {"symbol": "BTC", "timeframe": "1H"},
+            {"symbol": "ETH", "timeframe": "2H"}
         ]
     }
 
@@ -48,52 +33,40 @@ def generate_signals(anchor_df: pd.DataFrame, target_df: pd.DataFrame) -> pd.Dat
     - DataFrame with ['timestamp', 'symbol', 'signal', 'position_size']
     """
     try:
-        # Merge anchor and target data on timestamp
+            # Merge anchor and target data on timestamp
         df = pd.merge(
-            target_df[['timestamp', 'close_LDO_1H']],
-            anchor_df[['timestamp', 'close_BTC_4H', 'close_ETH_4H']],
-            on='timestamp',
-            how='outer'  # Use outer join to get all timestamps
+        target_df[['timestamp', 'close_SOL_4H']],
+        anchor_df[['timestamp', 'close_BTC_1H', 'close_ETH_2H']],
+        on='timestamp',
+        how='inner'
         ).sort_values('timestamp').reset_index(drop=True)
-        
-        # Calculate 4H returns for BTC and ETH
-        df['btc_return_4h'] = df['close_BTC_4H'].pct_change(fill_method=None)
-        df['eth_return_4h'] = df['close_ETH_4H'].pct_change(fill_method=None)
-        
-        # Calculate LDO price change for sell signals
-        df['ldo_return_1h'] = df['close_LDO_1H'].pct_change(fill_method=None)
-        
-        # Initialize signal arrays
+
+        # Calculate anchor returns
+        df['btc_return_1h'] = df['close_BTC_1H'].pct_change(fill_method=None)
+        df['eth_return_2h'] = df['close_ETH_2H'].pct_change(fill_method=None)
+
         signals = []
         position_sizes = []
-        
-        # Track position state for generating buy-sell pairs
         in_position = False
         entry_price = 0
-        
+
         for i in range(len(df)):
-            # Get current values (handle NaN)
-            btc_pump = df['btc_return_4h'].iloc[i] > 0.02 if pd.notna(df['btc_return_4h'].iloc[i]) else False
-            eth_pump = df['eth_return_4h'].iloc[i] > 0.02 if pd.notna(df['eth_return_4h'].iloc[i]) else False
-            ldo_price = df['close_LDO_1H'].iloc[i]
-            
-            # Signal generation logic
+            btc_pump = df['btc_return_1h'].iloc[i] > 0.02 if pd.notna(df['btc_return_1h'].iloc[i]) else False
+            eth_pump = df['eth_return_2h'].iloc[i] > 0.02 if pd.notna(df['eth_return_2h'].iloc[i]) else False
+            sol_price = df['close_SOL_4H'].iloc[i]
+
             if not in_position:
-                # Look for buy signals
-                if (btc_pump or eth_pump) and pd.notna(ldo_price):
+                if (btc_pump or eth_pump) and pd.notna(sol_price):
                     signals.append('BUY')
-                    position_sizes.append(0.5)  # 50% position size
+                    position_sizes.append(0.5)
                     in_position = True
-                    entry_price = ldo_price
+                    entry_price = sol_price
                 else:
                     signals.append('HOLD')
                     position_sizes.append(0.0)
             else:
-                # Look for sell signals when in position
-                if pd.notna(ldo_price) and entry_price > 0:
-                    # Sell conditions: 5% profit or 3% loss
-                    profit_pct = (ldo_price - entry_price) / entry_price
-                    
+                if pd.notna(sol_price) and entry_price > 0:
+                    profit_pct = (sol_price - entry_price) / entry_price
                     if profit_pct >= 0.05 or profit_pct <= -0.03:
                         signals.append('SELL')
                         position_sizes.append(0.0)
@@ -101,20 +74,34 @@ def generate_signals(anchor_df: pd.DataFrame, target_df: pd.DataFrame) -> pd.Dat
                         entry_price = 0
                     else:
                         signals.append('HOLD')
-                        position_sizes.append(0.5)  # Maintain position
+                        position_sizes.append(0.5)
                 else:
                     signals.append('HOLD')
                     position_sizes.append(0.5 if in_position else 0.0)
-        
-        # Create result DataFrame with required columns
+
         result_df = pd.DataFrame({
             'timestamp': df['timestamp'],
-            'symbol': 'LDO',  # All signals are for LDO (the target)
+            'symbol': 'SOL',
             'signal': signals,
             'position_size': position_sizes
         })
         
+
         return result_df
-        
     except Exception as e:
         raise RuntimeError(f"Error in generate_signals: {e}")
+if __name__ == "__main__":
+    df = pd.read_csv('market1_data.csv')
+    anchor_df = pd.DataFrame({
+    'timestamp': df['timestamp'],
+    'close_BTC_1H': df['close_BTC_1H'],
+    'close_ETH_2H': df['close_ETH_2H']
+    })
+    target_df = pd.DataFrame({
+    'timestamp': df['timestamp'],
+    'close_SOL_4H': df['close_SOL_4H']
+    })
+    signals = generate_signals(anchor_df, target_df)
+    signals.to_csv('signals.csv', index=False)
+    print("Signals generated and saved to signals.csv")
+

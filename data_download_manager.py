@@ -244,3 +244,15 @@ class CryptoDataManager:
         
         logging.info("Data processing completed successfully")
         return final_df
+if __name__ == "__main__":
+    # ...existing code...
+    symbol_configs = [
+        {"symbol": "SOL", "timeframe": "4H"},   # New target coin
+        {"symbol": "BTC", "timeframe": "1H"},   # Anchor
+        {"symbol": "ETH", "timeframe": "2H"}    # Anchor
+    ]
+    manager = CryptoDataManager()
+    result_df = manager.get_market_data(symbol_configs)
+    result_df.to_csv("market1_data.csv", index=False)
+    # ...existing code...
+
